@@ -6,9 +6,15 @@ on:
     - cron: '0 0 1 * *'
   workflow_dispatch:
 
+# 防止同一个保活任务并发执行
+concurrency:
+  group: repository-keepalive
+  cancel-in-progress: false
+
 jobs:
   keepalive:
     runs-on: ubuntu-latest
+
     permissions:
       contents: write
 
@@ -16,11 +22,13 @@ jobs:
       - name: 检出仓库
         uses: actions/checkout@v4
         with:
+          ref: main
           fetch-depth: 0
 
       - name: 更新保活时间戳
         run: |
           mkdir -p .github
+
           cat > .github/KEEPALIVE.md << EOF
           # Repository Keepalive
 
@@ -43,8 +51,18 @@ jobs:
 
           if git diff --staged --quiet; then
             echo "无变更"
-          else
-            git commit -m "chore: keepalive at $(date -u +'%Y-%m-%d')"
-            git push
-            echo "保活提交成功"
+            exit 0
           fi
+
+          git commit -m "chore: keepalive at $(date -u +'%Y-%m-%d')"
+
+          # 获取 main 最新提交
+          git fetch origin main
+
+          # 把当前保活 commit 放到远程 main 最新提交之后
+          git rebase origin/main
+
+          # 推送
+          git push origin HEAD:main
+
+          echo "保活提交成功"
